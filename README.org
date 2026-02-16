@@ -1,6 +1,98 @@
-#+TITLE: sb
+#+TITLE: sb — Sandbox & Worktree Auditor
 #+AUTHOR: jwalsh
+#+DATE: 2026-02-16
+#+STARTUP: overview
+#+OPTIONS: toc:3 num:t
+
+[[https://github.com/jwalsh/sb/actions][https://img.shields.io/github/actions/workflow/status/jwalsh/sb/ci.yml?branch=main&style=flat-square&logo=github.svg]]
+[[https://go.dev][https://img.shields.io/badge/go-1.23-00ADD8?style=flat-square&logo=go.svg]]
+[[https://github.com/jwalsh/sb][https://img.shields.io/github/license/jwalsh/sb?style=flat-square.svg]]
+[[https://github.com/jwalsh/sb/releases][https://img.shields.io/github/v/release/jwalsh/sb?style=flat-square.svg]]
 
 * Overview
 
-/Purpose TBD./
+=sb= is a lightweight Go CLI that audits and manages git worktrees,
+enforcing the convention that all worktrees live under =worktrees/=
+inside the repository rather than as sibling directories.
+
+This pattern is established across several projects:
+
+| Project  | Tool | Worktree Convention                                          |
+|----------+------+--------------------------------------------------------------|
+| [[https://github.com/steveyegge/beads][beads]]    | =bd= | Hash-based IDs, zero-conflict design for multi-agent flows   |
+| [[https://github.com/steveyegge/gastown][gastown]]  | =gt= | Rig abstraction with worktree isolation and setup hooks      |
+| [[https://github.com/jwalsh/cprr][cprr]]     | ---  | =worktrees/= gitignored, shell script management layer       |
+
+** Why not siblings?
+
+Sibling worktrees (the git default) cause problems:
+
+- They pollute the parent directory with checkout directories
+- They break =ghq= layouts (=~/ghq/github.com/org/repo= expects one dir per repo)
+- Agent tools can't distinguish worktrees from other repos
+- No single =.gitignore= can hide them from the main checkout
+
+The =worktrees/= convention keeps everything contained and discoverable.
+
+** Design Principles
+
+1. *Stealth mode*: =worktrees/= is gitignored; sb artifacts stay invisible to the host project
+2. *Discovery via branches*: Other agents find in-flight work via =git branch -r=
+3. *Smart checkout*: Check remote tracking branch -> local branch -> create new
+4. *Audit-first*: Default action validates placement, exits non-zero on violations
+5. *Install to =~/.local/bin=*: Follows bd/gt convention (not =go install= to =~/go/bin=)
+
+* Quick Start
+
+#+begin_src sh
+ghq get jwalsh/sb
+cd ~/ghq/github.com/jwalsh/sb
+make install
+#+end_src
+
+* Commands
+
+| Command              | Description                                |
+|----------------------+--------------------------------------------|
+| =sb audit=           | Check all worktrees are under =worktrees/= |
+| =sb add <name>=      | Create a worktree under =worktrees/=       |
+| =sb list=            | List worktrees with placement status       |
+| =sb remove <name>=   | Remove a worktree from =worktrees/=        |
+| =sb prune=           | Clean up stale worktree references         |
+| =sb version=         | Print version info                         |
+
+* Usage
+
+** Typical Agent Workflow
+
+#+begin_src sh
+sb add PROJ-a1b2           # creates worktrees/PROJ-a1b2 on feat/PROJ-a1b2
+cd worktrees/PROJ-a1b2
+# ... work, commit, push ...
+sb remove PROJ-a1b2
+sb prune
+#+end_src
+
+** CI / Pre-commit Hook
+
+#+begin_src sh
+sb audit || echo "WARNING: misplaced worktrees detected"
+#+end_src
+
+* Building
+
+#+begin_src sh
+make build     # build the binary
+make test      # run tests
+make lint      # golangci-lint or go vet
+make install   # build + install to ~/.local/bin
+make clean     # remove build artifacts
+#+end_src
+
+* Future Directions
+
+- =sb sync=: Fetch remote and show available branches
+- =sb init=: Initialize =worktrees/= with gitignore and CLAUDE.md overlay
+- =sb move=: Relocate misplaced worktrees into =worktrees/= automatically
+- Beads integration: Create/update a bead when adding/removing sandboxes
+- JSON output mode for agent consumption
