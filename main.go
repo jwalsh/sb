@@ -318,7 +318,7 @@ sb is part of a multi-agent tooling ecosystem:
 
   bd  (beads)   — issue tracking with hash-based IDs
   gt  (gastown) — multi-agent orchestration with rig abstraction
-  cprr          — conjecture-proof-refutation-refinement methodology
+  cprr          — conjecture-proof-refutation-refinement; worktrees/ gitignored, shell scripts
   sb            — sandbox & worktree auditor (this tool)
 
 all tools install to ~/.local/bin and use gmake on FreeBSD.

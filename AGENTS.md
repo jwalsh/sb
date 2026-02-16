@@ -20,7 +20,7 @@ builds with `make` (or `gmake` on FreeBSD).
 |--------|--------------------------|--------------------------------------------|
 | `bd`   | steveyegge/beads         | Distributed issue tracking with hash IDs   |
 | `gt`   | steveyegge/gastown       | Multi-agent orchestration with rigs        |
-| `cprr` | jwalsh/cprr              | Conjecture-proof-refutation-refinement     |
+| `cprr` | jwalsh/cprr              | Conjecture-proof-refutation-refinement; worktrees/ gitignored, shell scripts |
 | `sb`   | jwalsh/sb *(this repo)*  | Sandbox & worktree auditor                 |
 
 **Do NOT create issues, PRs, or forks on `steveyegge/*` repos.** Those
@@ -61,10 +61,9 @@ sb/
 ├── main.go              # All CLI logic (single-file for now)
 ├── go.mod               # Module definition (no dependencies)
 ├── Makefile             # GNU make (gmake on FreeBSD)
-├── sb.org               # Literate org-babel source (canonical design doc)
-├── README.org           # Project documentation
-├── CLAUDE.md            # Agent quick-reference
+├── README.md            # Project documentation
 ├── AGENTS.md            # This file — development guide
+├── CLAUDE.md            # Symlink → AGENTS.md
 ├── LICENSE              # MIT
 └── .gitignore           # sb binary + worktrees/
 ```
@@ -96,7 +95,7 @@ sb/
 1. Add a case to the `switch` in `main()`
 2. Add the command to `printUsage()`
 3. Add it to `runQuickstart()` if agents need to know about it
-4. Update README.org and CLAUDE.md
+4. Update README.md and CLAUDE.md
 5. Add to the Makefile `help` target if it has a make wrapper
 6. Write tests
 
@@ -243,7 +242,6 @@ switch, update `printUsage()`, update `runQuickstart()`, write tests.
 
 ## Questions?
 
-- Check the literate source: `sb.org`
 - Run `sb quickstart` for current state
 - Look at recent commits: `git log --oneline -20`
 - Check beads/gastown for ecosystem conventions (read-only)
