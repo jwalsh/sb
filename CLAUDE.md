@@ -8,12 +8,23 @@ A Go CLI that enforces the convention: all git worktrees belong under
 ## Build & Install
 
 ```sh
-make install   # builds and installs to ~/.local/bin/sb
+make install            # macOS/Linux
+gmake install           # FreeBSD (required — BSD make lacks $(shell)/ifndef)
+SKIP_UPDATE_CHECK=1 gmake install  # skip origin/main freshness check
 ```
 
 Do NOT use `go install` — that puts the binary in `~/go/bin` which is
 the wrong location.  The Makefile handles versioning, build info, and
 cleanup of stale binaries.
+
+## Go Version
+
+Requires go >= 1.23. Zero external dependencies (stdlib only).
+On FreeBSD where `go` isn't in PATH, symlink the versioned binary:
+
+```sh
+ln -sf /usr/local/bin/go124 ~/.local/bin/go
+```
 
 ## Commands
 

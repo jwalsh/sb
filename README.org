@@ -5,7 +5,7 @@
 #+OPTIONS: toc:3 num:t
 
 [[https://github.com/jwalsh/sb/actions][https://img.shields.io/github/actions/workflow/status/jwalsh/sb/ci.yml?branch=main&style=flat-square&logo=github.svg]]
-[[https://go.dev][https://img.shields.io/badge/go-1.23-00ADD8?style=flat-square&logo=go.svg]]
+[[https://go.dev][https://img.shields.io/badge/go-%E2%89%A51.23-00ADD8?style=flat-square&logo=go.svg]]
 [[https://github.com/jwalsh/sb][https://img.shields.io/github/license/jwalsh/sb?style=flat-square.svg]]
 [[https://github.com/jwalsh/sb/releases][https://img.shields.io/github/v/release/jwalsh/sb?style=flat-square.svg]]
 
@@ -47,8 +47,12 @@ The =worktrees/= convention keeps everything contained and discoverable.
 #+begin_src sh
 ghq get jwalsh/sb
 cd ~/ghq/github.com/jwalsh/sb
-make install
+make install          # macOS/Linux
+gmake install         # FreeBSD
 #+end_src
+
+On FreeBSD, use =gmake= (GNU make) — the Makefile uses =$(shell)= and
+=ifndef= which require it. This matches the bd/gt convention.
 
 * Commands
 
@@ -88,6 +92,9 @@ make lint      # golangci-lint or go vet
 make install   # build + install to ~/.local/bin
 make clean     # remove build artifacts
 #+end_src
+
+On FreeBSD substitute =gmake= for =make=. Use =SKIP_UPDATE_CHECK=1= to
+bypass the origin/main freshness check during install.
 
 * Future Directions
 
