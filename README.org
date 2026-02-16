@@ -4,10 +4,8 @@
 #+STARTUP: overview
 #+OPTIONS: toc:3 num:t
 
-[[https://github.com/jwalsh/sb/actions][https://img.shields.io/github/actions/workflow/status/jwalsh/sb/ci.yml?branch=main&style=flat-square&logo=github.svg]]
 [[https://go.dev][https://img.shields.io/badge/go-%E2%89%A51.23-00ADD8?style=flat-square&logo=go.svg]]
-[[https://github.com/jwalsh/sb][https://img.shields.io/github/license/jwalsh/sb?style=flat-square.svg]]
-[[https://github.com/jwalsh/sb/releases][https://img.shields.io/github/v/release/jwalsh/sb?style=flat-square.svg]]
+[[https://opensource.org/licenses/MIT][https://img.shields.io/badge/license-MIT-blue?style=flat-square.svg]]
 
 * Overview
 
