@@ -49,6 +49,8 @@ func main() {
 		err = runRemove(os.Args[2], force)
 	case "prune":
 		err = runPrune()
+	case "quickstart":
+		runQuickstart()
 	case "version":
 		fmt.Printf("sb %s (commit: %s, built: %s)\n", Version, GitCommit, BuildDate)
 	case "help", "-h", "--help":
@@ -71,6 +73,7 @@ func printUsage() {
 Ensures git worktrees live under worktrees/ (not as siblings).
 
 Commands:
+  quickstart       Setup instructions for LLM agents
   audit            Check all worktrees are under worktrees/
   add <name> [br]  Create a worktree under worktrees/
   list             List worktrees with placement status
@@ -289,6 +292,59 @@ func runPrune() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func runQuickstart() {
+	root, _ := repoRoot()
+	rootInfo := "(not in a git repo)"
+	if root != "" {
+		rootInfo = root
+	}
+
+	fmt.Printf(`# sb quickstart — agent context
+# version: %s (%s)
+# repo root: %s
+
+## what sb does
+
+sb enforces the convention that git worktrees live under worktrees/
+inside the repository, not as sibling directories. This keeps ghq
+layouts clean and lets agents discover each other's in-flight work
+via git branch -r without confusing worktrees for separate repos.
+
+## ecosystem
+
+sb is part of a multi-agent tooling ecosystem:
+
+  bd  (beads)   — issue tracking with hash-based IDs
+  gt  (gastown) — multi-agent orchestration with rig abstraction
+  cprr          — conjecture-proof-refutation-refinement methodology
+  sb            — sandbox & worktree auditor (this tool)
+
+all tools install to ~/.local/bin and use gmake on FreeBSD.
+
+## typical agent workflow
+
+  sb audit                  # verify no misplaced worktrees
+  sb add my-feature         # creates worktrees/my-feature on feat/my-feature
+  cd worktrees/my-feature   # isolated working directory
+  # ... make changes, commit, push ...
+  sb remove my-feature      # clean up when done
+  sb prune                  # remove stale refs
+
+## setup (run these commands)
+
+  ghq get jwalsh/sb
+  cd ~/ghq/github.com/jwalsh/sb
+  make install              # or: gmake install (FreeBSD)
+  # override go binary: GO=go124 gmake install
+  # skip freshness check:  SKIP_UPDATE_CHECK=1 gmake install
+
+## verify
+
+  sb version
+  sb audit
+`, Version, GitCommit, rootInfo)
 }
 
 func runRemove(name string, force bool) error {
