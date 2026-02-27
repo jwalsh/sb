@@ -16,12 +16,13 @@ sb is part of a multi-agent tooling ecosystem. These tools are designed
 for agents, not people. Every tool installs to `~/.local/bin` and
 builds with `make` (or `gmake` on FreeBSD).
 
-| Tool   | Repo                     | Purpose                                    |
-|--------|--------------------------|--------------------------------------------|
-| `bd`   | steveyegge/beads         | Distributed issue tracking with hash IDs   |
-| `gt`   | steveyegge/gastown       | Multi-agent orchestration with rigs        |
-| `cprr` | jwalsh/cprr              | Conjecture-proof-refutation-refinement; worktrees/ gitignored, shell scripts |
-| `sb`   | jwalsh/sb *(this repo)*  | Sandbox & worktree auditor                 |
+| Tool    | Repo                     | Purpose                                   |
+|---------|--------------------------|-------------------------------------------|
+| `bd`    | steveyegge/beads         | Distributed issue tracking with hash IDs  |
+| `gt`    | steveyegge/gastown       | Multi-agent orchestration with rigs       |
+| `adtap` | jwalsh/adtap             | ActivityPub server + digest agent         |
+| `cprr`  | jwalsh/cprr              | Conjecture-proof-refutation-refinement    |
+| `sb`    | jwalsh/sb *(this repo)*  | Sandbox & worktree auditor                |
 
 **Do NOT create issues, PRs, or forks on `steveyegge/*` repos.** Those
 are read-only references. Work happens here.
@@ -31,13 +32,16 @@ are read-only references. Work happens here.
 ## Quick Reference
 
 ```bash
-sb quickstart             # Agent-consumable setup context
+sb prime                  # Agent bootstrap context (alias: quickstart)
+sb init                   # Initialize worktrees/ directory and gitignore
 sb audit                  # Check worktree placement (exits non-zero on violations)
+sb doctor                 # Run health checks (stale refs, gitignore, orphans)
 sb add <name> [branch]    # Create worktree under worktrees/
 sb list                   # List worktrees with placement status
 sb remove <name>          # Remove a worktree
 sb prune                  # Clean up stale refs
 sb version                # Print version info
+sb --json <cmd>           # Output in JSON format (audit, list)
 ```
 
 ---
@@ -173,39 +177,6 @@ chore: bump go version in go.mod
 
 ---
 
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work
-is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **Run quality gates** (if code changed):
-   ```bash
-   make lint
-   make test
-   ./sb audit
-   ```
-2. **Commit** with conventional commit message
-3. **PUSH TO REMOTE** — This is MANDATORY:
-   ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-4. **Clean up** — Clear stashes, prune remote branches
-5. **Verify** — All changes committed AND pushed
-6. **Hand off** — Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing — that leaves work stranded locally
-- NEVER say "ready to push when you are" — YOU must push
-- If push fails, resolve and retry until it succeeds
-- Multiple agents coordinate via pushed branches. Unpushed work is invisible.
-
----
-
 ## Version Management
 
 Version is embedded at build time via ldflags:
@@ -223,25 +194,3 @@ git push origin v0.1.0
 
 The Makefile extracts version from `git describe --tags --always --dirty`.
 
----
-
-## Future Work
-
-Track work in GitHub issues on `jwalsh/sb`. Planned commands:
-
-- `sb sync` — Fetch remote, show available branches for checkout
-- `sb init` — Initialize `worktrees/` with gitignore + CLAUDE.md overlay
-- `sb move` — Relocate misplaced worktrees into `worktrees/`
-- `sb doctor` — Health check (stale refs, misplaced trees, gitignore)
-- JSON output mode (`--json`) for agent consumption
-
-When implementing these, follow the existing pattern: add to `main()`
-switch, update `printUsage()`, update `runQuickstart()`, write tests.
-
----
-
-## Questions?
-
-- Run `sb quickstart` for current state
-- Look at recent commits: `git log --oneline -20`
-- Check beads/gastown for ecosystem conventions (read-only)

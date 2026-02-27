@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,9 +14,10 @@ import (
 )
 
 var (
-	Version   = "dev"
-	GitCommit = "none"
-	BuildDate = "unknown"
+	Version    = "dev"
+	GitCommit  = "none"
+	BuildDate  = "unknown"
+	jsonOutput bool
 )
 
 // isHelpFlag returns true if arg is -h or --help.
@@ -24,6 +26,17 @@ func isHelpFlag(arg string) bool {
 }
 
 func main() {
+	// Pre-parse --json flag and remove it from args
+	var filtered []string
+	for _, arg := range os.Args[1:] {
+		if arg == "--json" {
+			jsonOutput = true
+		} else {
+			filtered = append(filtered, arg)
+		}
+	}
+	os.Args = append([]string{os.Args[0]}, filtered...)
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(0)
@@ -34,18 +47,26 @@ func main() {
 	case "audit":
 		err = runAudit()
 	case "add":
-		if len(os.Args) < 3 || isHelpFlag(os.Args[2]) {
+		args := os.Args[2:]
+		// Skip -- separator if present (POSIX convention for end of flags)
+		dashDashUsed := false
+		if len(args) > 0 && args[0] == "--" {
+			dashDashUsed = true
+			args = args[1:]
+		}
+		if len(args) < 1 || isHelpFlag(args[0]) {
 			printAddUsage()
-			if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+			if len(args) >= 1 && isHelpFlag(args[0]) {
 				os.Exit(0)
 			}
 			os.Exit(1)
 		}
+		name := args[0]
 		branch := ""
-		if len(os.Args) > 3 {
-			branch = os.Args[3]
+		if len(args) > 1 {
+			branch = args[1]
 		}
-		err = runAdd(os.Args[2], branch)
+		err = runAdd(name, branch, dashDashUsed)
 	case "list":
 		if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
 			printListUsage()
@@ -53,21 +74,31 @@ func main() {
 		}
 		err = runList()
 	case "remove":
-		if len(os.Args) < 3 || isHelpFlag(os.Args[2]) {
+		args := os.Args[2:]
+		// Skip -- separator if present (POSIX convention for end of flags)
+		dashDashUsed := false
+		if len(args) > 0 && args[0] == "--" {
+			dashDashUsed = true
+			args = args[1:]
+		}
+		if len(args) < 1 || isHelpFlag(args[0]) {
 			printRemoveUsage()
-			if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+			if len(args) >= 1 && isHelpFlag(args[0]) {
 				os.Exit(0)
 			}
 			os.Exit(1)
 		}
-		force := len(os.Args) > 3 && os.Args[3] == "--force"
-		err = runRemove(os.Args[2], force)
+		name := args[0]
+		force := len(args) > 1 && args[1] == "--force"
+		err = runRemove(name, force, dashDashUsed)
 	case "prune":
 		err = runPrune()
 	case "doctor":
 		err = runDoctor()
-	case "quickstart":
+	case "quickstart", "prime":
 		runQuickstart()
+	case "init":
+		err = runInit()
 	case "version":
 		fmt.Printf("sb %s (commit: %s, built: %s)\n", Version, GitCommit, BuildDate)
 	case "help", "-h", "--help":
@@ -90,7 +121,8 @@ func printUsage() {
 Ensures git worktrees live under worktrees/ (not as siblings).
 
 Commands:
-  quickstart       Setup instructions for LLM agents
+  prime            Agent bootstrap context (alias: quickstart)
+  init             Initialize worktrees/ directory and gitignore
   audit            Check all worktrees are under worktrees/
   add <name> [br]  Create a worktree under worktrees/
   list             List worktrees with placement status
@@ -100,6 +132,9 @@ Commands:
   version          Print version information
   help             Show this help
 
+Global flags:
+  --json           Output in JSON format (for agent consumption)
+
 Use "sb <command> --help" for more information about a command.`)
 }
 
@@ -107,15 +142,19 @@ func printAddUsage() {
 	fmt.Println(`sb add — Create a worktree under worktrees/
 
 Usage:
-  sb add <name> [branch]
+  sb add [--] <name> [branch]
 
 Arguments:
   <name>     Name for the worktree directory (required)
   [branch]   Branch name to use (optional, defaults to feat/<name>)
 
+Options:
+  --         End of flags separator. Use when <name> starts with a dash.
+
 Examples:
   sb add my-feature              # creates worktrees/my-feature on feat/my-feature
   sb add bugfix fix/issue-123    # creates worktrees/bugfix on fix/issue-123
+  sb add -- --weird-name         # creates worktrees/--weird-name (name starts with dash)
 
 The command will:
   - Create worktrees/ directory if it doesn't exist
@@ -147,17 +186,84 @@ func printRemoveUsage() {
 	fmt.Println(`sb remove — Remove a worktree from worktrees/
 
 Usage:
-  sb remove <name> [--force]
+  sb remove [--] <name> [--force]
 
 Arguments:
   <name>     Name of the worktree directory to remove (required)
+
+Options:
+  --         End of flags separator. Use when <name> starts with a dash.
   --force    Force removal even if worktree has uncommitted changes
 
 Examples:
   sb remove my-feature           # remove worktrees/my-feature
   sb remove my-feature --force   # force remove even with uncommitted changes
+  sb remove -- --weird-name      # remove worktrees/--weird-name (name starts with dash)
 
 Note: This only removes worktrees under the worktrees/ directory.`)
+}
+
+// validateWorktreeName checks for pathological worktree/branch names that could
+// cause security issues or unexpected behavior. Returns an error with actionable
+// guidance if the name is invalid. If skipDashCheck is true, dash-prefixed names
+// are allowed (used when -- separator was provided).
+func validateWorktreeName(name string, skipDashCheck bool) error {
+	// Empty or whitespace-only
+	if name == "" {
+		return fmt.Errorf("worktree name cannot be empty")
+	}
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("worktree name cannot be whitespace-only")
+	}
+
+	// Starts with dash (looks like a flag) - skip if -- separator was used
+	if !skipDashCheck && strings.HasPrefix(name, "-") {
+		return fmt.Errorf("worktree name %q starts with dash; use 'sb <command> -- %s' to force", name, name)
+	}
+
+	// Path traversal attacks
+	if name == "." || name == ".." {
+		return fmt.Errorf("worktree name cannot be %q (path traversal)", name)
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("worktree name %q contains '..' (path traversal not allowed)", name)
+	}
+	if strings.Contains(name, "./") || strings.Contains(name, "/.") {
+		return fmt.Errorf("worktree name %q contains path traversal pattern", name)
+	}
+	if strings.HasPrefix(name, "/") || strings.Contains(name, "/") {
+		return fmt.Errorf("worktree name %q contains '/' (use simple names, not paths)", name)
+	}
+
+	// Shell metacharacters that could enable injection
+	shellMetachars := []string{"$", "`", "|", ";", "&", ">", "<", "*", "?", "(", ")", "[", "]", "{", "}", "!", "~", "'", "\"", "\\"}
+	for _, c := range shellMetachars {
+		if strings.Contains(name, c) {
+			return fmt.Errorf("worktree name %q contains shell metacharacter %q (potential injection)", name, c)
+		}
+	}
+
+	// Git reserved names
+	if strings.ToUpper(name) == "HEAD" {
+		return fmt.Errorf("worktree name %q is reserved by git", name)
+	}
+	if strings.HasPrefix(name, "refs/") || strings.HasPrefix(name, "refs\\") {
+		return fmt.Errorf("worktree name %q starts with refs/ (reserved by git)", name)
+	}
+
+	// Control characters (ASCII < 32) and null bytes
+	for i := 0; i < len(name); i++ {
+		if name[i] < 32 || name[i] == 127 {
+			return fmt.Errorf("worktree name contains control character at position %d (ASCII %d)", i, name[i])
+		}
+	}
+
+	// Length limit
+	if len(name) > 255 {
+		return fmt.Errorf("worktree name is too long (%d chars, max 255)", len(name))
+	}
+
+	return nil
 }
 
 // repoRoot returns the git toplevel for cwd.
@@ -214,6 +320,15 @@ func gitWorktreeList() ([]worktreeEntry, error) {
 	return entries, nil
 }
 
+// auditOutput represents the JSON output for sb audit.
+type auditOutput struct {
+	RepoRoot       string         `json:"repo_root"`
+	Status         string         `json:"status"`
+	WorktreeCount  int            `json:"worktree_count"`
+	ViolationCount int            `json:"violation_count"`
+	Violations     []worktreeJSON `json:"violations,omitempty"`
+}
+
 func runAudit() error {
 	root, err := repoRoot()
 	if err != nil {
@@ -236,6 +351,50 @@ func runAudit() error {
 		}
 	}
 
+	if jsonOutput {
+		output := auditOutput{
+			RepoRoot:       root,
+			WorktreeCount:  len(entries) - 1, // exclude main
+			ViolationCount: len(violations),
+		}
+
+		if len(violations) == 0 {
+			output.Status = "ok"
+		} else {
+			output.Status = "violation"
+			output.Violations = make([]worktreeJSON, 0, len(violations))
+			for _, v := range violations {
+				rel, _ := filepath.Rel(root, v.Path)
+				branch := v.Branch
+				if branch == "" {
+					branch = "(detached)"
+				}
+				commit := v.Commit
+				if len(commit) > 8 {
+					commit = commit[:8]
+				}
+				output.Violations = append(output.Violations, worktreeJSON{
+					Name:   filepath.Base(v.Path),
+					Path:   rel,
+					Branch: branch,
+					Commit: commit,
+					Status: "MISPLACED",
+				})
+			}
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(output); err != nil {
+			return err
+		}
+
+		if len(violations) > 0 {
+			return fmt.Errorf("%d violation(s) found", len(violations))
+		}
+		return nil
+	}
+
 	if len(violations) == 0 {
 		fmt.Printf("ok: all %d worktrees are under worktrees/\n", len(entries)-1)
 		return nil
@@ -254,7 +413,12 @@ func runAudit() error {
 	return fmt.Errorf("%d violation(s) found", len(violations))
 }
 
-func runAdd(name, branch string) error {
+func runAdd(name, branch string, skipDashCheck bool) error {
+	// Validate worktree name before any filesystem operations
+	if err := validateWorktreeName(name, skipDashCheck); err != nil {
+		return err
+	}
+
 	wtDir, err := worktreeDir()
 	if err != nil {
 		return err
@@ -327,6 +491,21 @@ func ensureGitignore(wtDir string) {
 	fmt.Println("Added worktrees/ to .gitignore")
 }
 
+// worktreeJSON represents a worktree in JSON output.
+type worktreeJSON struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+	Commit string `json:"commit"`
+	Status string `json:"status"`
+}
+
+// listOutput represents the JSON output for sb list.
+type listOutput struct {
+	RepoRoot  string         `json:"repo_root"`
+	Worktrees []worktreeJSON `json:"worktrees"`
+}
+
 func runList() error {
 	root, err := repoRoot()
 	if err != nil {
@@ -337,6 +516,52 @@ func runList() error {
 	entries, err := gitWorktreeList()
 	if err != nil {
 		return err
+	}
+
+	if jsonOutput {
+		output := listOutput{
+			RepoRoot:  root,
+			Worktrees: make([]worktreeJSON, 0, len(entries)),
+		}
+
+		for _, e := range entries {
+			rel, _ := filepath.Rel(root, e.Path)
+			branch := e.Branch
+			if branch == "" {
+				branch = "(detached)"
+			}
+			commit := e.Commit
+			if len(commit) > 8 {
+				commit = commit[:8]
+			}
+
+			status := "main"
+			if e.Path == root {
+				// main worktree
+			} else if strings.HasPrefix(e.Path, wtDir+"/") {
+				status = "ok"
+			} else {
+				status = "MISPLACED"
+			}
+
+			// Extract name from path for worktrees under worktrees/
+			name := rel
+			if strings.HasPrefix(rel, "worktrees/") {
+				name = strings.TrimPrefix(rel, "worktrees/")
+			}
+
+			output.Worktrees = append(output.Worktrees, worktreeJSON{
+				Name:   name,
+				Path:   rel,
+				Branch: branch,
+				Commit: commit,
+				Status: status,
+			})
+		}
+
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
 	}
 
 	for _, e := range entries {
@@ -369,6 +594,41 @@ func runPrune() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// runInit initializes the worktrees/ directory and ensures it's gitignored.
+func runInit() error {
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+
+	wtDir := filepath.Join(root, "worktrees")
+
+	// Check if worktrees/ already exists
+	if info, err := os.Stat(wtDir); err == nil && info.IsDir() {
+		fmt.Printf("worktrees/ already exists at %s\n", wtDir)
+	} else {
+		// Create worktrees/ directory
+		if err := os.MkdirAll(wtDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create worktrees/: %w", err)
+		}
+		fmt.Printf("Created worktrees/ at %s\n", wtDir)
+	}
+
+	// Ensure worktrees/ is in .gitignore
+	ensureGitignore(wtDir)
+
+	// Create a .gitkeep so the directory is trackable if needed
+	gitkeep := filepath.Join(wtDir, ".gitkeep")
+	if _, err := os.Stat(gitkeep); os.IsNotExist(err) {
+		if err := os.WriteFile(gitkeep, []byte(""), 0o644); err != nil {
+			return fmt.Errorf("failed to create .gitkeep: %w", err)
+		}
+	}
+
+	fmt.Println("Initialized. Run 'sb doctor' to verify setup.")
+	return nil
 }
 
 // runDoctor performs health checks on worktree setup.
@@ -568,15 +828,17 @@ via git branch -r without confusing worktrees for separate repos.
 
 sb is part of a multi-agent tooling ecosystem:
 
-  bd  (beads)   — issue tracking with hash-based IDs
-  gt  (gastown) — multi-agent orchestration with rig abstraction
-  cprr          — conjecture-proof-refutation-refinement; worktrees/ gitignored, shell scripts
-  sb            — sandbox & worktree auditor (this tool)
+  bd    (beads)   — issue tracking with hash-based IDs
+  gt    (gastown) — multi-agent orchestration with rig abstraction
+  adtap           — activity pub server + digest agent
+  cprr            — conjecture-proof-refutation-refinement
+  sb              — sandbox & worktree auditor (this tool)
 
 all tools install to ~/.local/bin and use gmake on FreeBSD.
 
 ## typical agent workflow
 
+  sb init                   # set up worktrees/ and gitignore (first time)
   sb doctor                 # health check (stale refs, gitignore, orphans)
   sb audit                  # verify no misplaced worktrees
   sb add my-feature         # creates worktrees/my-feature on feat/my-feature
@@ -600,7 +862,12 @@ all tools install to ~/.local/bin and use gmake on FreeBSD.
 `, Version, GitCommit, rootInfo)
 }
 
-func runRemove(name string, force bool) error {
+func runRemove(name string, force bool, skipDashCheck bool) error {
+	// Validate worktree name before any filesystem operations
+	if err := validateWorktreeName(name, skipDashCheck); err != nil {
+		return err
+	}
+
 	wtDir, err := worktreeDir()
 	if err != nil {
 		return err
