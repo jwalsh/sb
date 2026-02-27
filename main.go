@@ -18,6 +18,11 @@ var (
 	BuildDate = "unknown"
 )
 
+// isHelpFlag returns true if arg is -h or --help.
+func isHelpFlag(arg string) bool {
+	return arg == "-h" || arg == "--help"
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -29,8 +34,11 @@ func main() {
 	case "audit":
 		err = runAudit()
 	case "add":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: sb add <name> [branch]")
+		if len(os.Args) < 3 || isHelpFlag(os.Args[2]) {
+			printAddUsage()
+			if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+				os.Exit(0)
+			}
 			os.Exit(1)
 		}
 		branch := ""
@@ -39,16 +47,25 @@ func main() {
 		}
 		err = runAdd(os.Args[2], branch)
 	case "list":
+		if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+			printListUsage()
+			os.Exit(0)
+		}
 		err = runList()
 	case "remove":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: sb remove <name>")
+		if len(os.Args) < 3 || isHelpFlag(os.Args[2]) {
+			printRemoveUsage()
+			if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+				os.Exit(0)
+			}
 			os.Exit(1)
 		}
 		force := len(os.Args) > 3 && os.Args[3] == "--force"
 		err = runRemove(os.Args[2], force)
 	case "prune":
 		err = runPrune()
+	case "doctor":
+		err = runDoctor()
 	case "quickstart":
 		runQuickstart()
 	case "version":
@@ -79,8 +96,68 @@ Commands:
   list             List worktrees with placement status
   remove <name>    Remove a worktree from worktrees/
   prune            Clean up stale worktree references
+  doctor           Run health checks on worktree setup
   version          Print version information
-  help             Show this help`)
+  help             Show this help
+
+Use "sb <command> --help" for more information about a command.`)
+}
+
+func printAddUsage() {
+	fmt.Println(`sb add — Create a worktree under worktrees/
+
+Usage:
+  sb add <name> [branch]
+
+Arguments:
+  <name>     Name for the worktree directory (required)
+  [branch]   Branch name to use (optional, defaults to feat/<name>)
+
+Examples:
+  sb add my-feature              # creates worktrees/my-feature on feat/my-feature
+  sb add bugfix fix/issue-123    # creates worktrees/bugfix on fix/issue-123
+
+The command will:
+  - Create worktrees/ directory if it doesn't exist
+  - Add worktrees/ to .gitignore if not present
+  - Track remote branch if origin/<branch> exists
+  - Use existing local branch if it exists
+  - Create a new branch otherwise`)
+}
+
+func printListUsage() {
+	fmt.Println(`sb list — List worktrees with placement status
+
+Usage:
+  sb list
+
+Output columns:
+  STATUS     Placement status (main, ok, or MISPLACED)
+  PATH       Relative path from repo root
+  COMMIT     Short commit hash
+  BRANCH     Branch name or (detached)
+
+Status values:
+  main       The main worktree (repo root)
+  ok         Worktree correctly placed under worktrees/
+  MISPLACED  Worktree outside worktrees/ (violation)`)
+}
+
+func printRemoveUsage() {
+	fmt.Println(`sb remove — Remove a worktree from worktrees/
+
+Usage:
+  sb remove <name> [--force]
+
+Arguments:
+  <name>     Name of the worktree directory to remove (required)
+  --force    Force removal even if worktree has uncommitted changes
+
+Examples:
+  sb remove my-feature           # remove worktrees/my-feature
+  sb remove my-feature --force   # force remove even with uncommitted changes
+
+Note: This only removes worktrees under the worktrees/ directory.`)
 }
 
 // repoRoot returns the git toplevel for cwd.
@@ -294,6 +371,181 @@ func runPrune() error {
 	return cmd.Run()
 }
 
+// runDoctor performs health checks on worktree setup.
+func runDoctor() error {
+	fmt.Println("sb doctor — health check")
+	fmt.Println()
+
+	var warnings, errors int
+
+	// 1. Git repository check
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Println("x Git repository: not in a git repository")
+		errors++
+		// Can't continue without a repo
+		fmt.Println()
+		fmt.Printf("Overall: %d warning(s), %d error(s)\n", warnings, errors)
+		return fmt.Errorf("not in a git repository")
+	}
+	fmt.Printf("+ Git repository: %s\n", root)
+
+	// 2. Worktree placement check
+	entries, err := gitWorktreeList()
+	if err != nil {
+		fmt.Println("x Worktree list: failed to get worktree list")
+		errors++
+	} else {
+		wtDir := filepath.Join(root, "worktrees")
+		var misplaced []worktreeEntry
+		var properCount int
+		for _, e := range entries {
+			if e.Path == root {
+				continue // main worktree
+			}
+			if strings.HasPrefix(e.Path, wtDir+"/") {
+				properCount++
+			} else {
+				misplaced = append(misplaced, e)
+			}
+		}
+
+		if len(misplaced) == 0 {
+			if properCount == 0 {
+				fmt.Println("+ Worktree placement: no worktrees (main only)")
+			} else {
+				fmt.Printf("+ Worktree placement: all %d worktree(s) under worktrees/\n", properCount)
+			}
+		} else {
+			fmt.Printf("x Worktree placement: %d worktree(s) outside worktrees/\n", len(misplaced))
+			for _, m := range misplaced {
+				rel, _ := filepath.Rel(root, m.Path)
+				fmt.Printf("    - %s\n", rel)
+			}
+			fmt.Println("  Fix: git worktree move <path> worktrees/<name>")
+			errors++
+		}
+	}
+
+	// 3. Stale refs check
+	staleRefs, err := checkStaleRefs()
+	if err != nil {
+		fmt.Println("! Stale refs: could not check")
+		warnings++
+	} else if len(staleRefs) == 0 {
+		fmt.Println("+ Stale refs: none found")
+	} else {
+		fmt.Printf("! Stale refs: %d found\n", len(staleRefs))
+		for _, ref := range staleRefs {
+			fmt.Printf("    - %s\n", ref)
+		}
+		fmt.Println("  Fix: sb prune")
+		warnings++
+	}
+
+	// 4. gitignore check
+	gitignoreOk, gitignorePath := checkGitignore(root)
+	if gitignoreOk {
+		fmt.Println("+ gitignore: worktrees/ is ignored")
+	} else {
+		fmt.Println("! gitignore: worktrees/ not in .gitignore")
+		fmt.Printf("  Fix: echo 'worktrees/' >> %s\n", gitignorePath)
+		warnings++
+	}
+
+	// 5. Orphaned directories check
+	wtDir := filepath.Join(root, "worktrees")
+	orphans, err := checkOrphanedDirs(wtDir, entries)
+	if err != nil {
+		// worktrees/ might not exist, that's ok
+		if !os.IsNotExist(err) {
+			fmt.Println("! Orphaned directories: could not check")
+			warnings++
+		} else {
+			fmt.Println("+ Orphaned directories: worktrees/ does not exist (ok)")
+		}
+	} else if len(orphans) == 0 {
+		fmt.Println("+ Orphaned directories: none found")
+	} else {
+		fmt.Printf("! Orphaned directories: %d found in worktrees/\n", len(orphans))
+		for _, o := range orphans {
+			fmt.Printf("    - %s\n", o)
+		}
+		fmt.Println("  Fix: rm -rf worktrees/<name> (after verifying no uncommitted work)")
+		warnings++
+	}
+
+	fmt.Println()
+	fmt.Printf("Overall: %d warning(s), %d error(s)\n", warnings, errors)
+
+	if errors > 0 {
+		return fmt.Errorf("%d error(s) found", errors)
+	}
+	return nil
+}
+
+// checkStaleRefs checks for stale worktree references.
+func checkStaleRefs() ([]string, error) {
+	// git worktree prune --dry-run shows what would be pruned
+	out, err := exec.Command("git", "worktree", "prune", "--dry-run", "-v").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+
+	var stale []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.Contains(line, "Removing") {
+			stale = append(stale, line)
+		}
+	}
+	return stale, nil
+}
+
+// checkGitignore checks if worktrees/ is in .gitignore.
+func checkGitignore(root string) (bool, string) {
+	giPath := filepath.Join(root, ".gitignore")
+	content, err := os.ReadFile(giPath)
+	if err != nil {
+		return false, giPath
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "worktrees/" || trimmed == "worktrees" || trimmed == "/worktrees/" || trimmed == "/worktrees" {
+			return true, giPath
+		}
+	}
+	return false, giPath
+}
+
+// checkOrphanedDirs finds directories in worktrees/ not registered with git.
+func checkOrphanedDirs(wtDir string, entries []worktreeEntry) ([]string, error) {
+	dirEntries, err := os.ReadDir(wtDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build set of registered worktree paths
+	registered := make(map[string]bool)
+	for _, e := range entries {
+		registered[e.Path] = true
+	}
+
+	var orphans []string
+	for _, d := range dirEntries {
+		if !d.IsDir() {
+			continue
+		}
+		fullPath := filepath.Join(wtDir, d.Name())
+		if !registered[fullPath] {
+			orphans = append(orphans, d.Name())
+		}
+	}
+	return orphans, nil
+}
+
 func runQuickstart() {
 	root, _ := repoRoot()
 	rootInfo := "(not in a git repo)"
@@ -325,6 +577,7 @@ all tools install to ~/.local/bin and use gmake on FreeBSD.
 
 ## typical agent workflow
 
+  sb doctor                 # health check (stale refs, gitignore, orphans)
   sb audit                  # verify no misplaced worktrees
   sb add my-feature         # creates worktrees/my-feature on feat/my-feature
   cd worktrees/my-feature   # isolated working directory
