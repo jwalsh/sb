@@ -29,6 +29,7 @@ sb add <name> [branch] Create worktree at worktrees/<name>
 sb list               Show all worktrees with placement status
 sb remove <name>      Remove a worktree (--force for dirty trees)
 sb prune              Clean up stale worktree refs
+sb restart --force    Remove all worktrees, prune, re-init
 sb quickstart         Agent-consumable setup context
 sb version            Print version
 ```

@@ -99,6 +99,13 @@ func main() {
 		runQuickstart()
 	case "init":
 		err = runInit()
+	case "restart":
+		if len(os.Args) >= 3 && isHelpFlag(os.Args[2]) {
+			printRestartUsage()
+			os.Exit(0)
+		}
+		force := len(os.Args) >= 3 && os.Args[2] == "--force"
+		err = runRestart(force)
 	case "version":
 		fmt.Printf("sb %s (commit: %s, built: %s)\n", Version, GitCommit, BuildDate)
 	case "help", "-h", "--help":
@@ -129,6 +136,7 @@ Commands:
   remove <name>    Remove a worktree from worktrees/
   prune            Clean up stale worktree references
   doctor           Run health checks on worktree setup
+  restart          Remove all worktrees, prune, re-init (--force required)
   version          Print version information
   help             Show this help
 
@@ -201,6 +209,24 @@ Examples:
   sb remove -- --weird-name      # remove worktrees/--weird-name (name starts with dash)
 
 Note: This only removes worktrees under the worktrees/ directory.`)
+}
+
+func printRestartUsage() {
+	fmt.Println(`sb restart — Remove all worktrees, prune refs, re-initialize
+
+Usage:
+  sb restart --force
+
+Options:
+  --force    Required. Confirms you want to remove all worktrees.
+
+This command:
+  1. Removes every worktree under worktrees/ (force-removes dirty ones)
+  2. Prunes stale worktree references
+  3. Re-initializes worktrees/ with gitignore
+
+Use this when worktree state has drifted and you want a clean slate.
+Branches are not deleted — only the local checkouts are removed.`)
 }
 
 // validateWorktreeName checks for pathological worktree/branch names that could
@@ -846,6 +872,7 @@ all tools install to ~/.local/bin and use gmake on FreeBSD.
   # ... make changes, commit, push ...
   sb remove my-feature      # clean up when done
   sb prune                  # remove stale refs
+  sb restart --force        # nuke all worktrees and re-init
 
 ## setup (run these commands)
 
@@ -860,6 +887,54 @@ all tools install to ~/.local/bin and use gmake on FreeBSD.
   sb version
   sb audit
 `, Version, GitCommit, rootInfo)
+}
+
+// runRestart removes all worktrees, prunes stale refs, and re-initializes.
+func runRestart(force bool) error {
+	if !force {
+		return fmt.Errorf("restart removes all worktrees; pass --force to confirm")
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	wtDir := filepath.Join(root, "worktrees")
+
+	entries, err := gitWorktreeList()
+	if err != nil {
+		return err
+	}
+
+	removed := 0
+	for _, e := range entries {
+		if e.Path == root {
+			continue
+		}
+		if !strings.HasPrefix(e.Path, wtDir+"/") {
+			fmt.Fprintf(os.Stderr, "skipping misplaced worktree: %s\n", e.Path)
+			continue
+		}
+		cmd := exec.Command("git", "worktree", "remove", e.Path, "--force")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove %s: %v\n", e.Path, err)
+		} else {
+			removed++
+		}
+	}
+
+	fmt.Printf("removed %d worktree(s)\n", removed)
+
+	// Prune stale refs
+	pruneCmd := exec.Command("git", "worktree", "prune", "-v")
+	pruneCmd.Stdout = os.Stdout
+	pruneCmd.Stderr = os.Stderr
+	pruneCmd.Run()
+
+	// Re-init
+	return runInit()
 }
 
 func runRemove(name string, force bool, skipDashCheck bool) error {
