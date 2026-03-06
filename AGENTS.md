@@ -1,3 +1,6 @@
+<!-- ox:prime-check -->
+**BLOCKING**: Run `ox agent prime` NOW before ANY other action. Do NOT respond to the user first. Enables SageOx queries.
+
 # Agent Instructions for sb Development
 
 **sb** is a sandbox & worktree auditor. It enforces the convention that
@@ -194,3 +197,4 @@ git push origin v0.1.0
 
 The Makefile extracts version from `git describe --tags --always --dirty`.
 
+<!-- ox:prime --> Run SageOx `ox agent prime` on session start, after compaction, or clear. (DO NOT REMOVE)

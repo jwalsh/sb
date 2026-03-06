@@ -1,0 +1,25 @@
+{
+  "repo_id": "repo_019cc0a8-78f0-7914-afc6-a326c15e7e55",
+  "type": "git",
+  "init_at": "2026-03-06T00:59:52Z",
+  "init_by_email": "j@wal.sh",
+  "init_by_name": "Jason Walsh",
+  "repo_salt": "a6a1518d5a789817db65f3db00e69c817678c6e2",
+  "endpoint": "https://sageox.ai",
+  "fingerprint": {
+    "first_commit": "a6a1518d5a789817db65f3db00e69c817678c6e2",
+    "monthly_checkpoints": {
+      "2026-02": "a6a1518d5a789817db65f3db00e69c817678c6e2",
+      "2026-03": "8b2e6fbe46f79b5db1537b79c76ac7bf53828c78"
+    },
+    "ancestry_samples": [
+      "a6a1518d5a789817db65f3db00e69c817678c6e2",
+      "4b72c7e719279b31c657fbbea69def5f01770ad1",
+      "8c68ee127e6bea271c4594e84465c0fbeaf4a010",
+      "dc736e37ac6fa177d5970f2866762032400558d9"
+    ],
+    "remote_hashes": [
+      "sha256:884181c028218d076537edfe3341936d482d9cc32305da0dafe7d67058317b9c"
+    ]
+  }
+}
